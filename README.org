@@ -1,0 +1,12 @@
+* org-query
+
+DISCLAIMER: this is in early stages of development. There are bugs, and the
+design and APIs are liable to change. It is currently only on Github for my own
+convenience.
+
+** What is it?
+
+Org-query is an org-mode addon that lets you generate alternative views of your
+org headlines with custom filtering, grouping and sorting. Compared to
+org-agenda, it offers more flexible / specific querying features, but has slower
+performance.
