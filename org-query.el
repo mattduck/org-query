@@ -1743,7 +1743,7 @@ Continue parsing child items even if a parent in the subtree fails to pass the f
   (org-query-advise-deactivate)
   ;;(org-query-advise-activate) ;; this was the offending line, broke the profiling
   (save-excursion
-    (let* ((this-filter-fn
+    (let* ((this-filter
             (lambda ()
               (and ;; A bunch of filters that will mostly all pass
                (not (org-query-filter-keyword-matches-p
@@ -1770,7 +1770,7 @@ Continue parsing child items even if a parent in the subtree fails to pass the f
            (config (make-org-query-config
                     :name "Performance test"
                     :parse-fn 'org-query-parse-items-horizontal-full
-                    :filter-fn this-filter-fn
+                    :filter this-filter
                     :group-fn 'org-query-group-tag-inherit
                     :sort-criteria this-sort-criteria))
            (filepath
