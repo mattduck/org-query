@@ -1,4 +1,4 @@
-;; This file is part of org-query.el.
+;;;; This file is part of org-query.el.
 
 ;; Org-query is free software: you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -13,171 +13,7 @@
 ;; You should have received a copy of the GNU General Public License
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-;;;; Test filter :up and :down
-(ert-deftest filter-keyword-up-true ()
-  (should
-   (with-temp-buffer
-     (insert
-      (mapconcat 'identity 
-                 '("#+TODO: TODO DONE" ; Define buffer keywords
-                   "* DONE Top parent"
-                   "** First child"
-                   "** Second child"
-                   "*** FOO Target headline"
-                   "**** Target child"
-                   "**** Target child"
-                   "***** DONE Target subchild"
-                   "****** TODO Target subsubchild"
-                   ) "\n"))
-     (org-mode)
-     (goto-line 5)
-     (org-query-filter-keyword-p (lambda (kwd) (string= kwd "DONE")) 
-                                        :this nil :up t :down nil))))
-
-(ert-deftest filter-keyword-down-true ()
-  (should
-   (with-temp-buffer
-     (insert
-      (mapconcat 'identity 
-                 '("#+TODO: TODO DONE" ; Define buffer keywords
-                   "* DONE Top parent"
-                   "** First child"
-                   "** Second child"
-                   "*** FOO Target headline"
-                   "**** Target child"
-                   "**** Target child"
-                   "***** DONE Target subchild"
-                   "****** TODO Target subsubchild"
-                   ) "\n"))
-     (org-mode)
-     (goto-line 5)
-     (org-query-filter-keyword-p (lambda (kwd) (string= kwd "DONE")) 
-                                        :this nil :up nil :down t))))
-
-(ert-deftest filter-keyword-up-down-true ()
-  (should
-   (with-temp-buffer
-     (insert
-      (mapconcat 'identity 
-                 '("#+TODO: TODO DONE" ; Define buffer keywords
-                   "* DONE Top parent"
-                   "** First child"
-                   "** Second child"
-                   "*** FOO Target headline"
-                   "**** Target child"
-                   "**** Target child"
-                   "***** Target subchild"
-                   "****** TODO Target subsubchild"
-                   ) "\n"))
-     (org-mode)
-     (goto-line 5)
-     (org-query-filter-keyword-p (lambda (kwd) (string= kwd "DONE")) 
-                                        :this t :up t :down t))))
-
-(ert-deftest filter-keyword-up-down-false ()
-  (should-not
-   (with-temp-buffer
-     (insert
-      (mapconcat 'identity 
-                 '("#+TODO: TODO DONE" ; Define buffer keywords
-                   "* DONE Top parent"
-                   "** First child"
-                   "** Second child"
-                   "*** FOO Target headline"
-                   "**** Target child"
-                   "**** Target child"
-                   "***** Target subchild"
-                   "****** TODO Target subsubchild"
-                   ) "\n"))
-     (org-mode)
-     (goto-line 5)
-     (org-query-filter-keyword-p (lambda (kwd) (string= kwd "FOO")) 
-                                        :this nil :up t :down t))))
-
-
-(ert-deftest filter-deadline-up-true ()
-  ;; Check that deadline is not inherited by default.
-  ;; This should be the case with all org properties.
-  (should
-   (with-temp-buffer
-     (insert
-      (mapconcat 'identity 
-                 '("* Parent"
-                   "  DEADLINE: <2015-01-01>"
-                   "** Child"
-                   "*** Subchild"
-                   ) "\n"))
-     (org-mode)
-     (goto-line 4)
-     (org-query-filter-deadline-in-days-p (lambda (d) (not (eq nil d)))
-                                        :this nil :up t))))
-
-(ert-deftest filter-down-false-cache-bug ()
-  ;; Targets bug where calling a filter function twice with ":down t" or ":up t"
-  ;; would return the same result, even if the arguments to that function were
-  ;; different. This was due to the respective cache hash tables not taking the
-  ;; args into account.
-   (with-temp-buffer
-     (insert
-      (mapconcat 'identity 
-                  '("#+TODO: NOW BLOCKED A_OPEN A_CLOSED"
-                    "* A_CLOSED Item E" ; This item is being displayed, but it
-                                        ; shouldn't be
-                    "** NOW Item E-A "
-                    "** BLOCKED Item E-B "
-                   ) "\n"))
-     (org-mode)
-     (goto-line 2)
-     (should (org-query-filter-scheduled-in-days-p
-              (lambda (d) (if (eq d nil) t (< d 30))) :up t))
-     (should (org-query-filter-keyword-matches-p
-              '("NOW" "HOLD" "BLOCKED") :down t))
-     (should-not (org-query-filter-keyword-matches-p
-                  '("A_OPEN") :this nil :up nil :down t))))
-
-
-(ert-deftest filter-down-sibling-skipping-bug ()
-  ;; Targets bug where :down t will search child headlines to full depth, but
-  ;; all siblings are ignored.
-  (with-temp-buffer
-    (insert
-     (mapconcat 'identity 
-                '("#+TODO: OPEN NOW HOLD BLOCKED"
-                  "* OPEN Parent"
-                  "** Child"
-                  "*** Subchild A" ; This is getting searched to full depth
-                  "*** Subchild B" ; This is not getting searched at all
-                  "*** Subchild C"
-                  "*** NOW Subchild D"
-                  ) "\n"))
-    (org-mode)
-    (goto-line 2)
-    (should (org-query-filter-keyword-matches-p 
-             '("NOW" "HOLD" "BLOCKED") :down t))))
-
-(ert-deftest filter-down-sibling-skipping-bug-second-child ()
-  ;; Targets bug where first child node is searched to full depth including its
-  ;; siblings, but all further siblings are ignored
-  (with-temp-buffer
-    (insert
-     (mapconcat 'identity 
-                '("#+TODO: OPEN NOW HOLD BLOCKED"
-                  "* OPEN Parent"
-                  "** OPEN Child A" ; It's only searching this node, including siblings
-                  "*** Subchild A-A"
-                  "*** Subchild A-B"
-                  "*** Subchild A-C"
-                  "** NOW Child B"  ; Should be searching all siblings
-                  "*** Subchild B-A"
-                  "*** Subchild B-B"
-                  "** Child C"
-                  ) "\n"))
-    (org-mode)
-    (goto-line 2)
-    (should (org-query-filter-keyword-matches-p 
-             '("NOW" "HOLD" "BLOCKED") :down t))))
-
-;;;; Test filter :this
+;;;; Test filter functions
 (ert-deftest filter-property-exists-true ()
   (should 
    (with-temp-buffer 
@@ -190,20 +26,7 @@
                    ":END:"
                    ) "\n"))
      (goto-line 1)
-     (org-query-filter-property-exists-p "FOO" :this t :up nil :down nil))))
-
-;;(ert-deftest filter-property-exists-true-shorthand ()
-;;  ;; TODO I want to support this, but not going to look at it right now
-;;  (should 
-;;   (with-temp-buffer 
-;;     (org-mode)
-;;     (insert 
-;;      (mapconcat 'identity 
-;;                 '("* property exists"
-;;                   ":FOO: a real value"
-;;                   ) "\n"))
-;;     (goto-line 1)
-;;     (org-query-filter-property-exists-p "FOO" :this t :up nil :down nil))))
+     (org-query-filter-property-exists-p "FOO"))))
 
 (ert-deftest filter-property-exists-false ()
   (should-not 
@@ -214,7 +37,7 @@
                  '("* property doesn't exist"
                    ) "\n"))
      (goto-line 1)
-     (org-query-filter-property-exists-p "FOO" :this t :up nil :down nil))))
+     (org-query-filter-property-exists-p "FOO"))))
 
 
 (ert-deftest filter-keyword-true ()
@@ -315,23 +138,6 @@
      (goto-line 1)
      (org-query-filter-priority-level-p (lambda (pri) (= pri 1000))))))
 
-(ert-deftest filter-priority-level-up-down-bug ()
-  ;; Was having problem where =(> pri 1000) :up t :down t= was always returning
-  ;; true, even when no high priority items existed.
-  (should-not
-   (with-temp-buffer
-     (org-mode)
-     (insert
-      (mapconcat 'identity 
-                 '("* Priority 1000"
-                   "** Priority 1000"
-                   "*** Target Priority 1000"
-                   "**** Priority 1000"
-                   ) "\n"))
-     (goto-line 3)
-     (org-query-filter-priority-level-p (lambda (pri) (> pri 1000)) :this t
-                                               :up t :down t))))
-
 (ert-deftest filter-archived-true ()
   (should
    (with-temp-buffer
@@ -430,7 +236,7 @@
      (goto-line 2)
      (org-query-filter-scheduled-in-days-p (lambda (d) (> d 100))))))
 
-(ert-deftest filter-schedulded-not-exist ()
+(ert-deftest filter-scheduled-not-exist ()
   (should
    (with-temp-buffer
      (org-mode)
@@ -482,6 +288,87 @@
      (org-mode)
      (goto-line 2)
      (org-query-filter-has-children-p))))
+
+
+
+;;;; Test org-query-filter-apply
+(defun example-filter ()
+  (let ((kwd (org-get-todo-state)))
+    (equal kwd "TRUE")))
+
+(ert-deftest filter-apply-self-returns-t ()
+  (with-temp-buffer
+    (insert 
+      (mapconcat 'identity 
+                 '("#+TODO: TRUE FALSE" ; Define buffer keywords
+                   "* TRUE headline"
+                   ) "\n"))
+    (org-mode)
+    (goto-line 2)
+    (should (org-query-filter-apply '(example-filter)))))
+
+(ert-deftest filter-apply-self-returns-nil ()
+  (with-temp-buffer
+    (insert 
+      (mapconcat 'identity 
+                 '("#+TODO: TRUE FALSE" ; Define buffer keywords
+                   "* FALSE headline"
+                   ) "\n"))
+    (org-mode)
+    (goto-line 2)
+    (should-not (org-query-filter-apply '(example-filter)))))
+
+(ert-deftest filter-apply-parents-returns-t ()
+  (with-temp-buffer
+    (insert 
+      (mapconcat 'identity 
+                 '("#+TODO: TRUE FALSE" ; Define buffer keywords
+                   "* TRUE headline"
+                   "** FALSE headline under test"
+                   ) "\n"))
+    (org-mode)
+    (goto-line 3)
+    (should (org-query-filter-apply '(example-filter) :self nil :parents t))))
+
+(ert-deftest filter-apply-parents-returns-nil ()
+  (with-temp-buffer
+    (insert 
+      (mapconcat 'identity 
+                 '("#+TODO: TRUE FALSE" ; Define buffer keywords
+                   "* FALSE headline"
+                   "** TRUE headline under test"
+                   ) "\n"))
+    (org-mode)
+    (goto-line 3)
+    (should-not (org-query-filter-apply '(example-filter) :self nil :parents t))))
+
+(ert-deftest filter-apply-children-returns-t ()
+  (with-temp-buffer
+    (insert 
+      (mapconcat 'identity 
+                 '("#+TODO: TRUE FALSE" ; Define buffer keywords
+                   "* FALSE headline"
+                   "** FALSE headline under test"
+                   "*** TRUE headline"
+                   ) "\n"))
+    (org-mode)
+    (goto-line 3)
+    (should (org-query-filter-apply '(example-filter) :self nil :children t))))
+
+(ert-deftest filter-apply-children-returns-nil ()
+  (with-temp-buffer
+    (insert 
+      (mapconcat 'identity 
+                 '("#+TODO: TRUE FALSE" ; Define buffer keywords
+                   "* TRUE headline"
+                   "** TRUE headline under test"
+                   "*** FALSE headline"
+                   ) "\n"))
+    (org-mode)
+    (goto-line 3)
+    (should-not (org-query-filter-apply '(example-filter) :self nil :children t))))
+
+
 
 ;;;; Test sorting
 (ert-deftest cmp-headline-lt ()
@@ -1659,8 +1546,7 @@
   (with-temp-buffer 
     (let ((results nil)
           (filename "/foo/bar.org") ; Doesn't matter for test
-          (filter-fn (lambda () 
-                       (org-query-filter-tag-matches-p '("FOO")))))
+          (filter '(org-query-filter-tag-matches-p '("FOO"))))
       (insert 
        (mapconcat 'identity 
                   '("* Item A :FOO:"
@@ -1674,7 +1560,7 @@
                     ) "\n"))
       (org-mode)
       (setq results (org-query-parse-items-horizontal-full 
-                     filter-fn filename (point-min)))
+                     filter filename (point-min)))
       
       (should 
        (equal
@@ -1700,8 +1586,7 @@
   (with-temp-buffer 
     (let ((results nil)
           (filename "/foo/bar.org") ; Doesn't matter for test
-          (filter-fn (lambda () 
-                       (org-query-filter-keyword-matches-p '("TODO")))))
+          (filter '(org-query-filter-keyword-matches-p '("TODO"))))
       (insert 
        (mapconcat 'identity 
                   '("* Item A"
@@ -1715,7 +1600,7 @@
                     ) "\n"))
       (org-mode)
       (setq results (org-query-parse-items-horizontal-half 
-                     filter-fn filename (point-min)))
+                     filter filename (point-min)))
       
       (should 
        (equal
@@ -1737,8 +1622,7 @@
   (with-temp-buffer 
     (let ((results nil)
           (filename "/foo/bar.org") ; Doesn't matter for test
-          (filter-fn (lambda () 
-                       (org-query-filter-keyword-matches-p '("TODO")))))
+          (filter '(org-query-filter-keyword-matches-p '("TODO"))))
       (insert 
        (mapconcat 'identity 
                   '("* Item A"
@@ -1754,7 +1638,7 @@
                     ) "\n"))
       (org-mode)
       (setq results (org-query-parse-items-vertical
-                     filter-fn filename (point-min)))
+                     filter filename (point-min)))
       
       (should 
        (equal
@@ -1794,8 +1678,7 @@
                  :files '("foo/bar.org") ; Doesn't matter as we're returning 
                                         ; mock file contents
                  :parse-fn 'org-query-parse-items-horizontal-full
-                 :filter-fn (lambda ()
-                              (org-query-filter-keyword-matches-p '("FOO")))
+                 :filter '(org-query-filter-keyword-matches-p '("FOO"))
                  :group-fn nil
                  :sort-criteria nil)))
     (flet
@@ -1836,9 +1719,7 @@
                  :files '("foo/bar.org") ; Doesn't matter as we're returning 
                                         ; mock file contents
                  :parse-fn 'org-query-parse-items-horizontal-full
-                 :filter-fn (lambda ()
-                              (or
-                                (org-query-filter-tag-matches-p '(nil "FOO" "BAR" "BAZ"))))
+                 :filter '(org-query-filter-tag-matches-p '(nil "FOO" "BAR" "BAZ"))
                  :group-fn 'org-query-group-tag-local
                  :sort-criteria '(org-query-cmp-priority))))
     (flet
@@ -1871,6 +1752,7 @@
       (should-not (save-excursion (search-forward "Item E" nil t)))
       (should (save-excursion (search-forward "[#A] Item F" nil t)))
       (should (save-excursion (search-forward "Item G" nil t))))))
+
 (ert-deftest query-fn-vertical-make-sure-hit-every-headline ()
   (let ((results nil)
         (test-buffer (generate-new-buffer "org-query-test"))
@@ -1880,7 +1762,7 @@
                  :files '("foo/bar.org") ; Doesn't matter as we're returning 
                                         ; mock file contents
                  :parse-fn 'org-query-parse-items-vertical
-                 :filter-fn (lambda () t) ; Include every headline
+                 :filter 't ; Include every headline
                  :group-fn nil
                  :sort-criteria nil)))
     (flet

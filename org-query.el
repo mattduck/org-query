@@ -1,4 +1,4 @@
-;; org-query.el --- Generate alternative views of your org-mode headlines
+;;;; org-query.el --- Generate alternative views of your org-mode headlines
 
 ;; Copyright (C) 2014-2015  Matthew Duck
 
@@ -207,7 +207,7 @@ completely certain how that function works).
   (description "(no description)")
   (files (org-query-get-files))
   (parse-fn 'org-query-parse-items-horizontal-half)
-  (filter-fn nil)
+  (filter nil)
   (group-fn nil)
   (sort-criteria nil))
 
@@ -561,7 +561,7 @@ completely certain how that function works).
         (goto-char (point-min)) ; as insurance
         (org-first-headline-recenter) ; goto first headline
         (setq this-item-list (funcall (org-query-config-parse-fn config)
-                                      (org-query-config-filter-fn config)
+                                      (org-query-config-filter config)
                                       this-file
                                       (point)
                                       ))
@@ -602,7 +602,7 @@ completely certain how that function works).
 
 ;;;; Parsing
 
-(defun org-query-parse-items-vertical (filter-fn filename point)
+(defun org-query-parse-items-vertical (filter filename point)
   " Parse all headlines into nested list of item structs, maintaining the
 natural order of subtrees. Subtrees are parsed until the point where an item
 fails to pass the filter.
@@ -617,7 +617,7 @@ fails to pass the filter.
          (children nil)
          (next-sibling-point nil))
       (while elements-remaining
-        (if (save-excursion (funcall filter-fn))
+        (if (save-excursion (eval filter))
             (progn
               (setq child-point
                     (save-excursion
@@ -625,7 +625,7 @@ fails to pass the filter.
               (setq children
                     (if child-point
                         (org-query-parse-items-vertical
-                         filter-fn filename child-point)
+                         filter filename child-point)
                       nil))
               (setq item-list 
                     (append item-list
@@ -639,7 +639,7 @@ fails to pass the filter.
         (if (not next-sibling-point) (setq elements-remaining nil)))
       item-list)))
 
-(defun org-query-parse-items-horizontal-half (filter-fn filename point)
+(defun org-query-parse-items-horizontal-half (filter filename point)
   "Parse all headlines into a flat list, regardless of their natural depth.
 If an item in a subtree fails the filter, don't parse the children of that item.
 "
@@ -653,7 +653,7 @@ If an item in a subtree fails the filter, don't parse the children of that item.
          next-sibling-point)
 
       (while elements-remaining
-        (if (save-excursion (funcall filter-fn))
+        (if (save-excursion (eval filter))
             (progn
               (setq item (make-org-query-item
                           :filename filename
@@ -670,7 +670,7 @@ If an item in a subtree fails the filter, don't parse the children of that item.
               (if child-point
                   (setq item-list
                         (append item-list (org-query-parse-items-horizontal-half
-                                           filter-fn filename child-point))))
+                                           filter filename child-point))))
               )
           )
         (setq next-sibling-point (org-get-next-sibling)) ;; This moves point location
@@ -682,7 +682,7 @@ If an item in a subtree fails the filter, don't parse the children of that item.
     )
   )
 
-(defun org-query-parse-items-horizontal-full (filter-fn filename point)
+(defun org-query-parse-items-horizontal-full (filter filename point)
   "Parse all headlines into a flat list, regardless of their natural depth.
 Continue parsing child items even if a parent in the subtree fails to pass the filter.
 "
@@ -696,7 +696,7 @@ Continue parsing child items even if a parent in the subtree fails to pass the f
          next-sibling-point)
 
       (while elements-remaining
-        (if (save-excursion (funcall filter-fn))
+        (if (save-excursion (eval filter))
             (progn
               (setq item (make-org-query-item
                           :filename filename
@@ -713,7 +713,7 @@ Continue parsing child items even if a parent in the subtree fails to pass the f
         (if child-point
             (setq item-list
                   (append item-list (org-query-parse-items-horizontal-full
-                                     filter-fn filename child-point))))
+                                     filter filename child-point))))
         (setq next-sibling-point (org-get-next-sibling)) ;; This moves point location
         (if (not next-sibling-point) (setq elements-remaining nil)))
 
@@ -722,226 +722,114 @@ Continue parsing child items even if a parent in the subtree fails to pass the f
 
 ;;;; Filtering
 
-(defun org-query-filter (get-fn filter-fn stop-fn this up down)
+(defun* org-query-filter-apply (match-exp &key (self t) (parents nil) (children nil))
   (save-excursion
-    (let ((stop nil)
-          (res nil)
-          (tuple nil))
-      (if (and this (not stop))
-          (progn
-            (setq tuple (org-query--filter-this get-fn filter-fn stop-fn))
-            (setq stop (nth 0 tuple))
-            (setq res (nth 1 tuple))))
+    (let ((match-found-p nil))
+      (if self
+          (setq match-found-p (eval match-exp)))
       (save-excursion
-        (if (and up (not stop) (org-up-heading-safe))
-            (progn
-              (setq tuple (org-query--filter-up get-fn filter-fn stop-fn))
-              (setq stop (nth 0 tuple))
-              (setq res (nth 1 tuple)))))
-      (save-excursion ; Insurance, not strictly needed
-        (if (and down (not stop) (org-goto-first-child))
-            (progn
-              (setq tuple (org-query--filter-down get-fn filter-fn stop-fn))
-              (setq stop (nth 0 tuple))
-              (setq res (nth 1 tuple)))))
-      res)))
+        (if (and parents (not match-found-p) (org-up-heading-safe))
+            (setq match-found-p (org-query--filter-parents match-exp))))
+      (save-excursion
+        (if (and children (not match-found-p) (org-goto-first-child))
+            (setq match-found-p (org-query--filter-children match-exp))))
+      match-found-p)))
 
-(defun org-query--filter-this (get-fn filter-fn stop-fn)
+(defun org-query--filter-parents (match-exp)
   (save-excursion
-    (let* (
-           (val (funcall get-fn))
-           (res (funcall filter-fn val))
-           (stop (funcall stop-fn val res))
-           )
-      (list stop res)
-      )
-    )
-  )
-
-(defun org-query--filter-up (get-fn filter-fn stop-fn)
+    (let ((match-found-p (eval match-exp)))
+      (if (and (not match-found-p) (org-up-heading-safe))
+          (org-query--filter-parents match-exp)
+        match-found-p))))
+  
+(defun org-query--filter-children (match-exp)
   (save-excursion
-    (let* ((val (funcall get-fn))
-           (res (funcall filter-fn val))
-           (stop (funcall stop-fn val res)))
-      (if (and (not stop) (org-up-heading-safe))
-          (org-query--filter-up get-fn filter-fn stop-fn)
-        (list stop res)))))
-
-(defun org-query--filter-down (get-fn filter-fn stop-fn)
-  (save-excursion
-    ;; First check this headline
-    (let* ((recursive-result nil)
-           (val (funcall get-fn))
-           (res (funcall filter-fn val))
-           (stop (funcall stop-fn val res)))
+    ;; First check current headline
+    (let* ((match-found-p (eval match-exp)))
       ;; Then descend through children
       (save-excursion 
-        (if (and (not stop) (org-goto-first-child))
-            (progn 
-              (setq recursive-result 
-                    (org-query--filter-down get-fn filter-fn stop-fn))
-              (setq stop (nth 0 recursive-result)) 
-              (setq res (nth 1 recursive-result)))))
+        (if (and (not match-found-p) (org-goto-first-child))
+            (setq match-found-p (org-query--filter-children match-exp))))
       ;; Then through siblings
       (save-excursion
-        (if (and (not stop) (org-goto-sibling))
-            (progn 
-              (setq recursive-result 
-                    (org-query--filter-down get-fn filter-fn stop-fn))
-              (setq stop (nth 0 recursive-result)) 
-              (setq res (nth 1 recursive-result)))))
-      (list stop res))))
+        (if (and (not match-found-p) (org-goto-sibling))
+            (setq match-found-p (org-query--filter-children match-exp))))
+      match-found-p)))
 
+(defun org-query-filter-keyword-p (user-fn)
+  (funcall user-fn (org-get-todo-state)))
 
-(defun* org-query-filter-keyword-p (user-fn &key (this t) (up nil) (down nil))
-  (save-excursion
-    (org-query-filter
-     (lambda () (org-get-todo-state))
-     (lambda (kw) (funcall user-fn kw))
-     (lambda (kw bool) bool) ; Stop searching if filter passes
-     this up down
-     )
-    )
-  )
-
-(defun* org-query-filter-keyword-matches-p (keyword-list &key (this t) (up nil) (down nil))
+(defun org-query-filter-keyword-matches-p (keyword-list)
   ;; For convenience, instead of using filter-keyword-p
-  (save-excursion
-    (org-query-filter
-     (lambda () 
-       (let ((kwd (org-get-todo-state)))
-         ;; Allow user to match against nil or "" to represent a missing keyword.
-         (if kwd kwd '(nil ""))))
-     (lambda (keyword) (member keyword keyword-list))
-     (lambda (v bool) bool) ; Stop searching if match found
-     this up down)))
+  (let ((kwd (org-get-todo-state)))
+    ;; Allow user to match against nil or "" to represent a missing keyword.
+    (if (not kwd) 
+        (setq kwd '(nil "")))
+    (member kwd keyword-list)))
 
-(defun* org-query-filter-tags-p (user-fn &key (this t) (up nil) (down nil))
-  (save-excursion
-    (org-query-filter
-     (lambda () (org-get-tags-at (point) t)) ; Get only local tags. Can use :up to get inherited.
-     (lambda (tags) (funcall user-fn tags))
-     (lambda (tags bool) bool) ; Stop searching if filter passes
-     this up down
-     )
-    )
-  )
+(defun org-query-filter-tags-p (user-fn)
+  ;; Get only local tags. Can use :up to get inherited.
+  (funcall user-fn (org-get-tags-at (point) t)))
 
-
-
-
-
-(defun* org-query-filter-tag-matches-p (user-tag-list &key (this t) (up nil) (down nil))
+(defun org-query-filter-tag-matches-p (user-tag-list)
   ;; For convenience, instead of using filter-tags-p
-  (save-excursion
-    (org-query-filter
-     (lambda () 
-       (let ((tags (org-get-tags-at (point) t)))
-         ;; Allow user to match against nil or "" (as this isn't a valid org
-         ;; tag) to represent a missing tag.
-         (if tags tags '(nil ""))))
-     (lambda (tags)
-       (let ((tag nil) (result nil))
-         (dolist (tag tags)
-           (if (member tag user-tag-list)
-               (setq result t))
-           )
-         result))
-     (lambda (v bool) bool) ; Stop searching if match found
-     this up down)))
+  (let ((matches-p nil)
+        (this-tag nil)
+        (tags (org-get-tags-at (point) t)))
+    ;; Allow user to match against nil or "" (as this isn't a valid org
+    ;; tag) to represent a missing tag.
+    (if (not tags) 
+        (setq tags '(nil "")))
+    (dolist (this-tag tags)
+      (if (member this-tag user-tag-list)
+          (setq matches-p t)))
+    matches-p))
 
-(defun* org-query-filter-priority-level-p (user-fn &key (this t) (up nil) (down nil))
-  (save-excursion
-    (org-query-filter
-     (lambda () (org-query-get-priority (point))) ; Gets priority number
-     (lambda (v) (funcall user-fn v)) ; User provides a function like (lambda (pri) (>= pri 0))
-     (lambda (v bool) bool)
-     this up down
-     )
-    )
-  )
+(defun org-query-filter-priority-level-p (user-fn)
+  (funcall user-fn (org-query-get-priority (point))))
 
-(defun* org-query-filter-outline-level-p (user-fn &key (this t) (up nil) (down nil))
-  (save-excursion
-    (org-query-filter
-     (lambda () (org-outline-level))
-     (lambda (v) (funcall user-fn v)) ; User provides a function like (lambda (pri) (>= pri 0))
-     (lambda (v bool) bool)
-     this up down
-     )
-    )
-  )
+(defun org-query-filter-outline-level-p (user-fn)
+  (funcall user-fn (org-outline-level)))
 
-(defun* org-query-filter-archived-p (&key (this t) (up nil) (down nil))
-  (save-excursion
-    (org-query-filter
-     (lambda () ) ; No value to get as such
-     (lambda (v) (member "ARCHIVE" (org-get-tags-at (point))))
-     (lambda (v bool) bool) ; Stop searching if archive found true
-     this up down
-     )
-    )
-  )
+(defun org-query-filter-archived-p ()
+  ;; There's probably a better way to determine this
+  (member "ARCHIVE" (org-get-tags-at (point))))
 
-(defun* org-query-filter-deadline-in-days-p (user-fn &key (this t) (up nil) (down nil))
-  (save-excursion
-    (org-query-filter
-     (lambda () ; Number of days between now and deadline
-       (if (org-query-get-deadline-time (point))
-           (time-to-number-of-days
-            (time-subtract
-             (org-query-get-deadline-time (point))
-             (org-current-effective-time)))
-         nil
-         )
-       )
-     (lambda (days) (funcall user-fn days))
-     (lambda (days bool) bool)
-     this up down)))
+(defun org-query-filter-deadline-in-days-p (user-fn)
+  (let ((deadline-time (org-query-get-deadline-time (point)))
+        (days nil))
+    (setq days ; Number of days between now and deadline
+          (if deadline-time
+              (time-to-number-of-days
+               (time-subtract deadline-time (org-current-effective-time)))
+            nil))
+    (funcall user-fn days)))
 
-(defun* org-query-filter-scheduled-in-days-p (user-fn &key (this t) (up nil) (down nil))
-  (save-excursion
-    (org-query-filter
-     (lambda () ; Number of days between now and deadline
-       (if (org-query-get-scheduled-time (point))
-           (time-to-number-of-days
-            (time-subtract
-             (org-query-get-scheduled-time (point)) (org-current-effective-time)))
-         nil
-         )
-       )
-     (lambda (days) (funcall user-fn days))
-     (lambda (days bool) bool)
-     this up down
-     )
-    )
-  )
+(defun org-query-filter-scheduled-in-days-p (user-fn)
+  (let ((scheduled-time (org-query-get-scheduled-time (point)))
+        (days nil))
+    (setq days ; Number of days between now and scheduled
+          (if scheduled-time
+              (time-to-number-of-days
+               (time-subtract scheduled-time (org-current-effective-time)))
+            nil))
+    (funcall user-fn days)))
 
-(defun* org-query-filter-clocked-mins-p (user-fn &key (this t) (up nil) (down nil))
-  (save-excursion
-    (org-query-filter
-     (lambda ()
-       (let ((mins (org-clock-sum-current-item)))
-         (if mins mins 0))) ;; Just in case, but org-clock-sum-current-item should return 0 if
-     ;; nothing clocked
-     (lambda (h) (funcall user-fn h))
-     (lambda (h bool) bool) ; Stop searching if match
-     this up down)))
+(defun org-query-filter-clocked-mins-p (user-fn)
+  (let ((mins (org-clock-sum-current-item)))
+    ;; Just in case, but org-clock-sum-current-item should return 0 if
+    ;; nothing clocked
+    (if (not mins)
+        (setq mins 0))
+    (funcall user-fn mins)))
 
-
-(defun* org-query-filter-property-exists-p (property &key (this t) (up nil) (down nil))
-  (save-excursion
-    (org-query-filter
-     (lambda () (org-entry-get (point) property))
-     (lambda (v) (if (eq v nil) nil t))
-     (lambda (v bool) bool) ; Stop searching if property found
-     this up down
-     )
-    )
-  )
+(defun org-query-filter-property-exists-p (property)
+  (let ((val (org-entry-get (point) property)))
+    (if (eq val nil) nil t)))
 
 (defun org-query-filter-has-children-p ()
   (save-excursion (org-goto-first-child)))
+
 
 ;;;; Grouping
 
