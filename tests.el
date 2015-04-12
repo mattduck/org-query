@@ -342,7 +342,7 @@
     (goto-line 3)
     (should-not (org-query-filter-apply '(example-filter) :self nil :parents t))))
 
-(ert-deftest filter-apply-children-returns-t ()
+(ert-deftest filter-apply-children-returns-t-for-first-child ()
   (with-temp-buffer
     (insert 
       (mapconcat 'identity 
@@ -350,6 +350,57 @@
                    "* FALSE headline"
                    "** FALSE headline under test"
                    "*** TRUE headline"
+                   ) "\n"))
+    (org-mode)
+    (goto-line 3)
+    (should (org-query-filter-apply '(example-filter) :self nil :children t))))
+
+(ert-deftest filter-apply-children-returns-t-for-subchild ()
+  (with-temp-buffer
+    (insert 
+      (mapconcat 'identity 
+                 '("#+TODO: TRUE FALSE" ; Define buffer keywords
+                   "* FALSE headline"
+                   "** FALSE headline under test"
+                   "*** FALSE headline"
+                   "**** TRUE headline"
+                   "***** FALSE headline"
+                   ) "\n"))
+    (org-mode)
+    (goto-line 3)
+    (should (org-query-filter-apply '(example-filter) :self nil :children t))))
+
+(ert-deftest filter-apply-children-returns-t-for-first-child-sibling ()
+  (with-temp-buffer
+    (insert 
+      (mapconcat 'identity 
+                 '("#+TODO: TRUE FALSE" ; Define buffer keywords
+                   "* FALSE headline"
+                   "** FALSE headline under test"
+                   "*** FALSE headline"
+                   "**** FALSE headline"
+                   "*** FALSE headline"
+                   "*** TRUE headline"
+                   "*** FALSE headline"
+                   ) "\n"))
+    (org-mode)
+    (goto-line 3)
+    (should (org-query-filter-apply '(example-filter) :self nil :children t))))
+
+(ert-deftest filter-apply-children-returns-t-for-first-child-sibling-subchild ()
+  (with-temp-buffer
+    (insert 
+      (mapconcat 'identity 
+                 '("#+TODO: TRUE FALSE" ; Define buffer keywords
+                   "* FALSE headline"
+                   "** FALSE headline under test"
+                   "*** FALSE headline"
+                   "**** FALSE headline"
+                   "*** FALSE headline"
+                   "**** FALSE headline"
+                   "*** FALSE headline"
+                   "**** TRUE headline"
+                   "*** FALSE headline"
                    ) "\n"))
     (org-mode)
     (goto-line 3)
