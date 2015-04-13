@@ -1855,6 +1855,67 @@
       (should (save-excursion (search-forward "Item K" nil t)))
       (should (save-excursion (search-forward "Item L" nil t)))
       (should (save-excursion (search-forward "Due" nil t)))))) ; Make sure deadline displayed
+
+(ert-deftest query-fn-vertical-filter-regression-test ()
+  ;; Test query config that wasn't returning expected results
+  (let ((test-buffer (generate-new-buffer "org-query-test"))
+        (config (make-org-query-config
+                 :name "Test query"
+                 :description "Test description"
+                 :files '("foo/bar.org") ; Doesn't matter as we're returning 
+                                        ; mock file contents
+                 :parse-fn 'org-query-parse-items-vertical
+                 :group-fn nil
+                 :sort-criteria nil
+                 :filter
+                 '(org-query-filter-apply
+                   '(and
+                     (not (org-query-filter-archived-p))
+                     (or
+                      (org-query-filter-priority-level-p (lambda (p) (> p 1000)))
+                      (org-query-filter-deadline-in-days-p (lambda (d) (if (eq d nil) nil (<= d 100))))))
+                   :self t :parents t :children t))))
+    (flet
+        ((org-query-get-temp-file-buffer (file) test-buffer))
+      (set-buffer test-buffer)
+      (insert 
+       (mapconcat 'identity 
+                  '("* Item A"
+                    "** Item B"
+                    "*** [#A] Item C :ARCHIVE:"
+                    "*** Item D"
+                    "**** Item E"
+                    "* Item F"
+                    "** Item G"
+                    "*** Item H"
+                    "**** Item I"
+                    "     DEADLINE: <2015-01-01>"
+                    "* Item J"
+                    "* [#A] Item K"
+                    "** Item L"
+                    ) "\n"))
+      (org-mode)
+      
+      ;; Display results in org-query buffer
+      (org-query-fn config)
+      (set-buffer org-query-buffer-name)
+      (message (buffer-substring (point-min) (point-max)))
+      (goto-char (point-min))
+      
+      (should-not (save-excursion (search-forward "Item A" nil t)))
+      (should-not (save-excursion (search-forward "Item B" nil t)))
+      (should-not (save-excursion (search-forward "Item C" nil t)))
+      (should-not (save-excursion (search-forward "Item D" nil t)))
+      (should-not (save-excursion (search-forward "Item E" nil t)))
+      (should (save-excursion (search-forward "Item F" nil t)))
+      (should (save-excursion (search-forward "Item G" nil t)))
+      (should (save-excursion (search-forward "Item H" nil t)))
+      (should (save-excursion (search-forward "Item I" nil t)))
+      (should-not (save-excursion (search-forward "Item J" nil t)))
+      (should (save-excursion (search-forward "Item K" nil t)))
+      (should (save-excursion (search-forward "Item L" nil t))))))
+
+
 ;;;; Test inheritance
 (ert-deftest inherit-deadline-t ()
   (with-temp-buffer
