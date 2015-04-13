@@ -1899,7 +1899,6 @@
       ;; Display results in org-query buffer
       (org-query-fn config)
       (set-buffer org-query-buffer-name)
-      (message (buffer-substring (point-min) (point-max)))
       (goto-char (point-min))
       
       (should-not (save-excursion (search-forward "Item A" nil t)))
