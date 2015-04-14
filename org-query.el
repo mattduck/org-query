@@ -823,7 +823,7 @@ Continue parsing child items even if a parent in the subtree fails to pass the f
         (setq mins 0))
     (funcall user-fn mins)))
 
-(defun org-query-filter-property-exists-p (property)
+(defun* org-query-filter-property-exists-p (property &key (inherit 'selective))
   (let ((val (org-entry-get (point) property)))
     (if (eq val nil) nil t)))
 
