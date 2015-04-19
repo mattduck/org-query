@@ -205,7 +205,7 @@ completely certain how that function works).
   ;; Will need to add default arguments later
   (name nil)
   (description "(no description)")
-  (files (org-query-get-files))
+  (files nil)
   (parse-fn 'org-query-parse-items-horizontal-half)
   (filter nil)
   (group-fn nil)
@@ -544,8 +544,8 @@ completely certain how that function works).
                       )))
     )
   (insert "\n\n")
-
   (let (
+        (files-to-query (or (org-query-config-files config) (org-query-get-files)))
         this-file
         this-item-list
         this-group
@@ -553,9 +553,8 @@ completely certain how that function works).
         (groups '())
         )
 
-
     ;; Parse all files to build list of item objects
-    (dolist (this-file (org-query-config-files config))
+    (dolist (this-file files-to-query)
       (save-excursion
         (set-buffer (org-query-get-temp-file-buffer this-file))
         (goto-char (point-min)) ; as insurance
