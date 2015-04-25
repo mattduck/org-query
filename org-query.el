@@ -1301,7 +1301,7 @@ Continue parsing child items even if a parent in the subtree fails to pass the f
       (if no-date-group
           (add-to-list 'group-list
                        (make-org-query-group
-                        :name "Not closed"
+                        :name "No CLOSED timestamp"
                         :items no-date-group)))
       (dolist (this-group-data (reverse group-data))
         (setq this-group-items (gethash (car this-group-data) items-table))
