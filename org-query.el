@@ -66,6 +66,15 @@
     )
   )
 
+(defun org-query-get-last-clock-out-time ()
+  "Get the last clock-out time for the current headline, excluding child items."
+  (save-excursion
+    (let ((end (save-excursion (outline-next-heading))))
+      (when (re-search-forward (concat org-clock-string
+				       ".*\\]--\\(\\[[^]]+\\]\\)") end t)
+	(org-time-string-to-time (match-string 1))))))
+
+
 ;;;; Utils specific to org query
 
 (defun org-query-get-buffer ()
@@ -822,6 +831,16 @@ Continue parsing child items even if a parent in the subtree fails to pass the f
         (setq mins 0))
     (funcall user-fn mins)))
 
+(defun org-query-filter-days-since-last-clock-out-p (user-fn)
+  (let ((last-clock-out-time (org-query-get-last-clock-out-time))
+        (days nil))
+    (setq days ; 0 if last clockout was today
+          (if last-clock-out-time
+              (time-to-number-of-days
+               (time-subtract (org-current-effective-time) last-clock-out-time))
+            nil))
+    (funcall user-fn days)))
+
 (defun* org-query-filter-property-exists-p (property &key (inherit 'selective))
   (let ((val (org-entry-get (point) property)))
     (if (eq val nil) nil t)))
@@ -1315,6 +1334,75 @@ Continue parsing child items even if a parent in the subtree fails to pass the f
 
 
 
+(defun org-query-group-clocked (items)
+  (save-excursion
+    (let ((group-data
+           (list
+            '("Was clocked in the future?!"
+              (lambda (d) (> d 0)))
+            '("Was clocked today"
+              (lambda (d) (and (>= d -1) (<= d 0))))
+            '("Was clocked up to 1 week ago"
+              (lambda (d) (and (>= d -7) (< d -1))))
+            '("Was clocked up to 3 weeks ago"
+              (lambda (d) (and (>= d -21) (< d -7))))
+            '("Was clocked up to 6 weeks ago"
+              (lambda (d) (and (>= d -42) (< d -21))))
+            '("Was clocked up to 3 months ago"
+              (lambda (d) (and (>= d -90) (< d -42))))
+            '("Was clocked up to 6 months ago"
+              (lambda (d) (and (>= d -180) (< d -90))))
+            '("Was clocked up to 1 year ago"
+              (lambda (d) (and (>= d -365) (< d -180))))
+            '("Was clocked up to 3 years ago"
+              (lambda (d) (and (>= d -1095) (< d -365))))
+            '("Was clocked more than 3 years ago"
+              (lambda (d) (< d -1095)))))
+          (items-table (make-hash-table :size 20 :test 'equal))
+          (no-clock-group nil)
+          (this-days nil)
+          (this-closed nil)
+          (group-i nil)
+          (this-item nil)
+          (this-group nil)
+          (this-group-key nil)
+          (this-group-data nil)
+          (this-group-items nil)
+          (group-list nil))
+      (dolist (this-item items)
+        (set-buffer (org-query-item-buffer this-item))
+        (goto-char (org-query-item-point this-item))
+        (setq this-clock (org-query-get-last-clock-out-time))
+        (if this-clock
+            (progn
+              (setq this-days
+                    (time-to-number-of-days
+                     (time-subtract this-clock (org-current-effective-time))))
+              (setq group-i 0)
+              (while (< group-i (length group-data))
+                (if (funcall (nth 1 (nth group-i group-data)) this-days)
+                    (progn
+                      (setq this-group-key (car (nth group-i group-data)))
+                      (setq this-group (gethash this-group-key items-table))
+                      (puthash this-group-key (add-to-list 'this-group this-item) items-table)
+                      (setq group-i (length group-data)))
+                  (setq group-i (+ group-i 1)))))
+          (add-to-list 'no-clock-group this-item)))
+      (if no-clock-group
+          (add-to-list 'group-list
+                       (make-org-query-group
+                        :name "No CLOCK entry"
+                        :items no-clock-group)))
+      (dolist (this-group-data (reverse group-data))
+        (setq this-group-items (gethash (car this-group-data) items-table))
+        (if this-group-items
+            (add-to-list 'group-list
+                         (make-org-query-group
+                          :name (car this-group-data)
+                          :items this-group-items))))
+      group-list)))
+
+
 ;;;; Sorting
 
 (defun org-query--cmp-cached-funcall (fn< a b)
@@ -1464,6 +1552,24 @@ Continue parsing child items even if a parent in the subtree fails to pass the f
        (< val-a val-b)
        (= val-a val-b)))))
 
+(defun org-query-cmp-last-clocked (a b)
+  ;; Compare the time of the last clocked value, if it exists.
+  (save-excursion
+    (let* ((last-clocked-time nil)
+           (get-fn
+            (lambda (item)
+              (set-buffer (org-query-item-buffer item))
+              (goto-char (org-query-item-point item))
+              (setq last-clocked-time (org-query-get-last-clock-out-time))
+              (if last-clocked-time
+                  (org-float-time last-clocked-time)
+                0)))
+           (val-a (funcall get-fn a))
+           (val-b (funcall get-fn b)))
+      (list
+       (> val-a val-b)
+       (= val-a val-b)))))
+
 (defun org-query-cmp-review (a b)
   (save-excursion
     (let* ((review nil)
@@ -1583,6 +1689,12 @@ Continue parsing child items even if a parent in the subtree fails to pass the f
               ""
               )))
 
+         (last-clocked
+          (let ((clocked (org-query-get-last-clock-out-time)))
+            (if clocked
+                (format "%s" (format-time-string org-query-time-format clocked))
+              ""
+              )))
 
          (scheduled-date
           (let ((time-tuple
@@ -1685,6 +1797,12 @@ Continue parsing child items even if a parent in the subtree fails to pass the f
         (insert (format "  - %s %s\n"
                         (org-query-util-ljust "Clocked ::" ljust-width)
                         time-clocked
+                        )))
+
+    (if (not (string= "" last-clocked))
+        (insert (format "  - %s %s\n"
+                        (org-query-util-ljust "Last clocked ::" ljust-width)
+                        last-clocked
                         )))
 
     (insert (format "  - %s %s\n"
